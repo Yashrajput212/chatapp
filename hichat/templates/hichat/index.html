@@ -1,0 +1,842 @@
+{% extends "hichat/layout.html" %}
+{% block body %}
+    <div class="left">
+        <button class="leftDraw">》</button>
+        <div class="rooms" id="AllRooms">
+        </div>
+        <button id="contact" class="btn btn-info">Contacts</button>
+    </div>
+    <div class="right">
+        <h2 id="room-user">
+        </h2>
+        <div id="room">
+        </div>
+        <div id="room-form">
+        </div>
+    </div>
+    <div id="contact-view" style="position: absolute; display: none;">
+        <button id="closeContact" onclick="toggleContactView()"><span class="bi bi-x-square-fill"></span></button>
+        <button id="AddContact" onclick="addContactView()"><span class="bi bi-person-plus-fill"></span></button>
+        <div id="searchContact">
+            <input id="searchInput" type="text" placeholder="Search contacts">
+        </div>
+        <div id="contact-list">
+        </div>
+    </div>
+    <div id="add-contact-view" style="position: absolute; display: none;">
+        <button id="closeContact" onclick="addContactView()"><span class="bi bi-x-square-fill"></span></button>
+        <div class="addContactForm">
+            <input id="contactInput-name" class="form-control mb-2" type="text" placeholder="Name">
+            <input id="contactInput-email" class="form-control mb-2" type="email" placeholder="email">
+            <button type="button" onclick="addNewContact()" id="contactInput-save" class="btn btn-success">Save</button>
+        </div>
+    </div>
+    <div class="settings" style="display: none;">
+        <button id="closeSettings" onclick="toggleSettingsView()"><span class="bi bi-x-square-fill"></span></button>
+        <div class="" style="display: none; background-color: white; color: black;" id="setting-message"></div>
+        <div id="changePassword">
+            <div class="form-group">
+                <input type="password" class="form-control" placeholder="Old Password" id="OldPassword">
+            </div>
+            <div class="form-group">
+                <input type="password" class="form-control" placeholder="New Password" id="NewPassword">
+            </div>
+            <div class="form-group">
+                <button type="button" onclick="changePassword()" id="changePasswordBtn" class="btn btn-success">Save</button>
+            </div>
+        </div>
+
+        <a href="{% url 'delete_account' %}"><button id="delete_acount" type="button" class="btn btn-danger" onclick="return confirm('Are you sure? Do you really want to delete your account?')">Delete Account</button></a>
+
+        <button type="button" id="editRoomButton" onclick="toggleEditRoomList()" class="btn btn-warning mt-5">Edit Rooms</button>
+        <div id="editRooms" style="display: none; position: absolute;">
+            <button id="closeEditRoom" onclick="toggleEditRoomList()"><span class="bi bi-x-square-fill"></span></button>
+            <div id="editRoomList"></div>
+        </div>
+    </div>
+
+    <script>
+        var roomName = "";
+        let roomId = 0;
+        let messageCount = 0;
+        let allMessages = 0;
+        var roomInterval;
+        var AllContacts = {};
+        var listXpos1 = 0, listXpos2 = 0;
+        let roomCount = 0;
+
+
+        let options = {  
+            year: "numeric", month: "short",  
+            day: "numeric", hour: "2-digit", minute: "2-digit"  
+        };
+
+        document.addEventListener('DOMContentLoaded', () => {
+            document.querySelector('#room').style.display = 'none';
+            document.querySelector('#contact').addEventListener('click', () => toggleContactView());
+            document.querySelector('#searchInput').addEventListener('keyup', () => searchContacts());
+            document.querySelector('.leftDraw').addEventListener('click', () => toggleRoomList());
+            
+            getContactName();
+            getAllMessages();
+            load_room_list();
+
+            selectRoom();
+        })
+
+        
+
+        
+        function load_room_list() {
+            fetch('/load_rooms')
+            .then(response => response.json())
+            .then(rooms => {
+                roomCount = rooms.length
+                document.querySelector('#AllRooms').innerHTML = "";
+                rooms.forEach(function(room) {
+                    var roomUser = "";
+                    
+                    var d = new Date(room.modified);
+                    for (let i=0; i < room.users.length; i++) {
+                        if (room.users[i] != "{{ request.user.id }}")
+                        {
+                            if (AllContacts.length > 0)
+                            {
+                             for(let j=0; j<AllContacts.length; j++)
+                             {
+                                if(AllContacts[j]["owner__id"] == room.users[i])
+                                {
+                                    roomUser = AllContacts[j]["name"];
+                                    break;
+                                }
+                                else
+                                {
+                                    roomUser = room.username[i];
+                                }
+                             }
+                            }
+                            else
+                            {
+                                roomUser = room.username[i];
+                            }
+                        }
+                    }
+                    
+                    if (room.read == 0 && room.last_modifier != "{{ request.user.id }}")
+                    {
+                        document.querySelector('#AllRooms').innerHTML += `
+                            <button type="button" id="room-button" class="unread" role="row" data-modifier="${room.last_modifier}" data-id="${room.id}" data-name="${room.name}">
+                                ${roomUser}
+                                <small class="roomTime">${d.toLocaleTimeString("en-us", options)}</small>
+                            </button>
+                        `;
+                    }
+                    else if (room.read == 1 || room.last_modifier == "{{ request.user.id }}")
+                    {
+                        document.querySelector('#AllRooms').innerHTML += `
+                            <button type="button" id="room-button" class="read" role="row" data-modifier="${room.last_modifier}" data-id="${room.id}" data-name="${room.name}">
+                                ${roomUser}
+                                <small class="roomTime">${d.toLocaleTimeString("en-us", options)}</small>
+                            </button>
+                        `;
+                    }
+                    
+                })
+
+
+                selectRoom();
+
+                document.querySelectorAll('#room-button').forEach(button => {
+                    button.onclick = function() {
+                        document.querySelector('#room').style.display = 'block';
+                        roomName = this.dataset.name;
+                        roomId = this.dataset.id;
+                        document.querySelector('#room-user').innerHTML = this.innerHTML;
+                        if(this.dataset.modifier != "{{ request.user.id }}")
+                        {
+                            read(roomId, "read");
+                        }
+                        updateRoom();
+                        selectRoom();
+                        toggleRoomList()
+                    }
+                })
+            })
+
+        }
+
+
+        function checkRoom(){
+            fetch(`/room/${roomName}`)
+            .then(response => response.json())
+            .then(messages => {
+                if (messages.length != 1 && messages.length == (messageCount +1))
+                {
+                    document.querySelector('#getChatAudio').play();
+                }
+                if (messages.length > messageCount)
+                {
+                    updateRoom();
+                }
+                if(messages.length == (messageCount - 1) && messageCount > 0)
+                {
+                    updateRoom();
+                }
+                
+                messageCount = messages.length;
+            })
+        }
+
+        var myInterval;
+
+        function getAllMessages() {
+        myInterval = setInterval(function() {
+                fetch('/all_messages')
+                .then(response => response.json())
+                .then(messages => {
+                    if (messages.length > allMessages && allMessages > 0)
+                    {
+                        
+                        if(messages[0]['room__last_modifier'] != "{{ request.user.id }}")
+                        {
+                            if(messages[0]['room__read'] == 1 && messages[0]['room__name'] != roomName)
+                            {
+                                read(messages[0]['room'], "unread"); 
+                            }
+                        }
+                        load_room_list(); 
+
+                        if(roomName != "")
+                        {
+                            checkRoom();
+                        }
+                    }
+                    else if(messages.length < allMessages && allMessages > 0)
+                    {
+                        if(roomName != "")
+                        {
+                            checkRoom();
+                        }
+                        getRoomCount();
+                    }
+                    allMessages = messages.length
+                })
+                if(localStorage.getItem('NewRoom'))
+                {
+                    clickThisButton(localStorage.getItem('NewRoom'));
+                }
+                if(localStorage.getItem('room_deleted'))
+                {
+                    let roomSelected = false;
+                    document.querySelectorAll('#room-button').forEach(function(button){
+                        if(button.ariaSelected == 'true')
+                        {
+                            roomSelected = true;
+                        }
+                    })
+
+                    if(roomSelected == false)
+                    {
+                        document.querySelector('#room-user').innerHTML = "";
+                        document.querySelector('#room-form').innerHTML = "";
+                        document.querySelector('#room').innerHTML = "";
+                        document.querySelector('#room').style.display = 'none';
+                    }
+                    alert('Room Deleted');
+                    localStorage.removeItem('room_deleted');
+                }
+                
+            }, 1000)
+
+        }
+
+
+        function getRoomCount()
+        {
+            fetch('load_rooms')
+            .then(response => response.json())
+            .then(rooms => {
+                if(rooms.length < roomCount && roomCount > 0)
+                {
+                    localStorage.setItem('room_deleted', true);
+                    load_room_list();
+                }
+                roomCount = rooms.length
+            })
+        }
+
+        
+
+        function updateRoom() {
+            fetch(`/room/${roomName}`)
+            .then(response => response.json())
+            .then(messages => {
+                document.querySelector(`#room`).innerHTML = "";
+                messages.forEach(function(message) {
+
+                    var d = new Date(message.time);
+    
+                    if (message.user == "{{ request.user.id }}")
+                    {
+                        document.querySelector(`#room`).innerHTML += `
+                            <div class="Mychat">
+                                <p>${message.text} <button type="button" onclick="deleteThisChat(${message.id}, ${message.room})" id="deleteChat" class="bi bi-trash"></button></p>
+                                <small class="text-muted">${d.toLocaleTimeString("en-us", options)}</small>
+                            </div>
+                        `;
+                    }
+                    else
+                    {
+                        document.querySelector(`#room`).innerHTML += `
+                            <div class="Otherchat">
+                                <p>${message.text}</p>
+                                <small class="text-muted">${d.toLocaleTimeString("en-us", options)}</small>
+                            </div>
+                        `;
+                    }
+                })
+                document.querySelector('#room').scrollTop = document.querySelector('#room').scrollHeight;
+            })
+        
+            
+            document.querySelector(`#room-form`).innerHTML = `
+                <form enctype="multipart/form-data" class="send-form">
+                    <textarea id="sentText" cols="12" rows="1"></textarea>
+                    <button onclick="sendchat(${roomId})" id="send" type="button" class="btn btn-primary"><span class="bi bi-send"></span></button>
+                </form>
+            `;
+
+            
+
+            var textarea = document.querySelector('textarea');
+
+            textarea.addEventListener('keydown', autosize);
+                        
+            function autosize(){
+            var el = this;
+            setTimeout(function(){
+                el.style.cssText = 'height:auto; padding:10px';
+                // for box-sizing other than "content-box" use:
+                // el.style.cssText = '-moz-box-sizing:content-box';
+                el.style.cssText = 'height:' + (el.scrollHeight + 12) + 'px';
+            },0);
+            }
+        }
+
+        function sendchat(send_id) {
+            var textarea = document.querySelector('#sentText').value
+
+            if(textarea.length > 0)
+            {
+                fetch(`/sent/${send_id}`, {
+                    method: "PUT",
+                    body: JSON.stringify({
+                        text: textarea
+                    })
+                })
+                .then(response => response.json())
+                .then(result => {
+                    if (result.message)
+                    {
+                        document.querySelector('#sentText').value = '';
+                        getAllMessages();
+                    }
+                    else
+                    {
+                        alert("fail");
+                    }
+                })
+            }
+        }
+
+        function read(id, state)
+        {
+            fetch(`/read/${id}`, {
+                method: "PUT",
+                body: JSON.stringify({
+                    read: state
+                })
+            })
+            .then(response => response.json())
+            .then(res => {
+                if(res.message)
+                {
+                    load_room_list();
+                }
+                else if(res.error)
+                {
+                    console.log(res.error);
+                }
+            })
+        }
+
+        function stopRoomInterval(){
+            clearInterval(roomInterval);
+        }
+
+        function toggleContactView() {
+            var e = document.querySelector('#contact-view');
+            if (e.style.display == 'none')
+            {
+                document.querySelector('#add-contact-view').style.display = 'none';
+                e.style.display = 'block';
+                // Get contact list
+                fetch('/contact')
+                .then(response => response.json())
+                .then(contacts => {
+                    contacts.forEach(function(contact){
+                        var html = `
+                            <div id="contactBox-${contact['id']}">
+                                <button id="contactBtn" onclick="togglecontactform(${contact['owner__id']})" type="button" data-owner="${contact['owner__id']}">${contact['name']} <a class="bi bi-trash-fill" onclick="deleteContact(${contact['id']})"></a></button>
+                                <form id="contactForm" data-id="${contact['owner__id']}" style="display: none;">
+                                    <textarea onkeydown="autosize(${contact['owner__id']})" class="startChatBox" id="contactInput-${contact['owner__id']}" rows="1" cols="12"  type="text" placeholder="Start chat with ${contact['name']}"></textarea>
+                                    <button type="button" onclick="startChat(${contact['owner__id']})"><span class="bi bi-send"></span></button>
+                                </form>
+                            </div>
+                        `;
+                        document.querySelector('#contact-list').innerHTML += html;
+                    })
+                })
+
+                            
+            }
+            else
+            {
+                e.style.display = 'none';
+                document.querySelector('#contact-list').innerHTML = "";
+            }
+            
+            
+        }
+
+        
+
+        function searchContacts() {
+            var q = document.querySelector('#searchInput').value;
+            document.querySelector('#contact-list').innerHTML = "";
+            if(q.length > 0)
+            {
+                fetch(`/search/${q}`)
+                .then(response => response.json())
+                .then(contacts => {
+                    contacts.forEach(function(contact){
+                        var html = `
+                            <div id="contactBox-${contact['id']}">
+                                <button id="contactBtn" onclick="togglecontactform(${contact['owner__id']})" type="button" data-owner="${contact['owner__id']}">${contact['name']} <a class="bi bi-trash-fill" onclick="deleteContact(${contact['id']})"></a></button>
+                                <form id="contactForm" data-id="${contact['owner__id']}" style="display: none;">
+                                    <textarea onkeydown="autosize(${contact['owner__id']})" class="startChatBox" id="contactInput-${contact['owner__id']}" rows="1" cols="12"  type="text" placeholder="Start chat with ${contact['name']}"></textarea>
+                                    <button type="button" onclick="startChat(${contact['owner__id']})"><span class="bi bi-send"></span></button>
+                                </form>
+                            </div>
+                        `;
+                        document.querySelector('#contact-list').innerHTML += html;
+                    })
+                })
+            }
+            else
+            {
+                fetch('/contact')
+                .then(response => response.json())
+                .then(contacts => {
+                    contacts.forEach(function(contact){
+                        var html = `
+                            <div id="contactBox-${contact['id']}">
+                                <button id="contactBtn" onclick="togglecontactform(${contact['owner__id']})" type="button" data-owner="${contact['owner__id']}">${contact['name']} <a class="bi bi-trash-fill" onclick="deleteContact(${contact['id']})"></a></button>
+                                <form id="contactForm" data-id="${contact['owner__id']}" style="display: none;">
+                                    <textarea onkeydown="autosize(${contact['owner__id']})" class="startChatBox" id="contactInput-${contact['owner__id']}" rows="1" cols="12"  type="text" placeholder="Start chat with ${contact['name']}"></textarea>
+                                    <button type="button" onclick="startChat(${contact['owner__id']})"><span class="bi bi-send"></span></button>
+                                </form>
+                            </div>
+                        `;
+                        document.querySelector('#contact-list').innerHTML += html;
+                    })
+                })
+            }
+        }
+
+        function togglecontactform(id){
+            document.querySelectorAll('#contactForm').forEach(function(form) {
+                if (form.dataset.id == id)
+                {
+                    if (form.style.display == 'none')
+                    {
+                        form.style.display = 'flex';
+                    }
+                    else
+                    {
+                        form.style.display = 'none';
+                    }
+                }
+            })
+        }
+
+        function startChat(id){
+            var textarea = document.querySelector(`#contactInput-${id}`).value;
+            if(textarea.length > 0)
+            {
+                fetch(`/create_room/${id}`, {
+                    method: "PUT",
+                    body: JSON.stringify({
+                        text: textarea
+                    })
+                })
+                .then(response => response.json())
+                .then(result => {
+                    if (result.message)
+                    {
+                        load_room_list();
+                        toggleContactView();
+                        localStorage.setItem('NewRoom', result.room_id);
+                    }
+                    else if (result.error)
+                    {
+                        toggleContactView();
+                        clickThisButton(result.room_id);
+                    }
+                })
+            }
+        }
+
+
+        function clickThisButton(room_id)
+        {
+            document.querySelectorAll('#room-button').forEach(function(button){
+                if (button.dataset.id == room_id)
+                {
+                    button.click();
+                    localStorage.removeItem('NewRoom');
+                }
+            });
+        }
+
+        function addContactView()
+        {
+            var div = document.querySelector('#add-contact-view');
+
+            if (div.style.display == 'none')
+            {
+                toggleContactView();
+                div.style.display = 'flex';
+            }
+            else
+            {
+                div.style.display = 'none';
+            }
+        }
+
+        function addNewContact()
+        {
+            var name = document.querySelector('#contactInput-name').value;
+            var email = document.querySelector('#contactInput-email').value;
+
+            var msgDiv = document.querySelector('.addContectMessage');
+
+            fetch('/contact', {
+                method: "PUT",
+                body: JSON.stringify({
+                    name: name,
+                    email: email
+                })
+            })
+            .then(response => response.json())
+            .then(result => {
+                if (result.message)
+                {
+                    if (result.message == "success")
+                    {
+                        if (msgDiv != null)
+                        {
+                            document.querySelector('.addContectMessage').remove()
+                        }
+                        document.querySelector('#contactInput-name').value = "";
+                        document.querySelector('#contactInput-email').value = "";
+                        addContactView();
+                        toggleContactView();
+                        getContactName();
+                        load_room_list();
+                        alert("Contact saved!")
+                    }
+                    else if (result.message == "Already exist")
+                    {
+                        if (msgDiv != null)
+                        {
+                            document.querySelector('.addContectMessage').remove()
+                        }
+                        document.querySelector('#add-contact-view').innerHTML += `
+                            <div class="addContectMessage">Contact already exist!</div>
+                        `;
+                    }
+                }
+                else if (result.error)
+                {
+                    if (msgDiv != null)
+                    {
+                        document.querySelector('.addContectMessage').remove();
+                    }
+                    document.querySelector('#add-contact-view').innerHTML += `
+                        <div class="addContectMessage">Invalid Email</div>
+                    `;
+                }
+            })
+        }
+        
+
+        function autosize(id){
+            var el = document.querySelector(`#contactInput-${id}`);
+        setTimeout(function(){
+            el.style.cssText = 'height:auto; padding:10px';
+            // for box-sizing other than "content-box" use:
+            // el.style.cssText = '-moz-box-sizing:content-box';
+            el.style.cssText = 'height:' + (el.scrollHeight + 12) + 'px';
+        },0);
+        }
+
+
+        function deleteThisChat(msg_id, room_id)
+        {
+            if(confirm("Are you sure? you want to delete this message!"))
+            {
+                fetch(`/delete_chat/${msg_id}`)
+                .then(response => response.json())
+                .then(recieve => {
+                    if(recieve.message == "deleted")
+                    {
+                        document.querySelectorAll('#room-button').forEach(function(button){
+                            if(button.dataset.id == room_id)
+                            {
+                                button.click();
+                                toggleRoomList()
+                            }
+                        })
+                    }
+                    else if(recieve.error)
+                    {
+                        alert("Chat not delete")
+                    }
+                })
+            }
+        }
+
+        function deleteContact(contact_id)
+        {
+            if(confirm("Do you want to delete this contact?"))
+            {
+                fetch(`delete_contact/${contact_id}`)
+                .then(response => response.json())
+                .then(result => {
+                    if(result.error)
+                    {
+                        alert(result.error);
+                    }
+                    else if(result.message)
+                    {
+                        getContactName();
+                        load_room_list();
+                        document.querySelector(`#contactBox-${contact_id}`).remove();
+                    }
+                })
+            }
+        }
+
+
+        function getContactName(){
+            fetch('/contact')
+            .then(response => response.json())
+            .then(contacts => {
+                AllContacts = contacts;
+            })
+        }
+
+        function selectRoom()
+        {
+            if (document.querySelectorAll('#room-button') != null)
+            {
+                document.querySelectorAll('#room-button').forEach(function(button){
+                    if(roomName != "")
+                    {
+                        if(button.dataset.id == roomId)
+                        {
+                            button.ariaSelected = 'true';
+                        }
+                        else
+                        {
+                            button.ariaSelected = 'false';
+                        }
+                    }
+                    else
+                    {
+                        button.ariaSelected = 'false';
+                    }
+                })
+            }
+        }
+
+        function toggleSettingsView()
+        {
+            var settingsDiv = document.querySelector('.settings');
+
+            if(settingsDiv.style.display == 'none')
+            {
+                settingsDiv.style.animationName = 'slide';
+                settingsDiv.style.animationPlayState = 'running';
+                settingsDiv.style.display = 'flex';
+                settingsDiv.addEventListener('animationend', () =>{
+                    settingsDiv.style.animationPlayState = 'paused';
+                })
+            }
+            else if (settingsDiv.style.display == 'flex')
+            {
+                settingsDiv.style.animationName = 'slide-back';
+                settingsDiv.style.animationPlayState = 'running';
+                settingsDiv.addEventListener('animationend', () =>{
+                    if(settingsDiv.style.animationName == 'slide-back')
+                    {
+                        settingsDiv.style.display = 'none';
+                    }
+                })
+                
+            }
+        }
+
+        function toggleRoomList(){
+            var left = document.querySelector('.left');
+            var Draw = document.querySelector('.leftDraw');
+
+            if(left.style.animationName == 'hide-left')
+            {
+                Draw.style.right = '0';
+                Draw.style.transform = 'rotate(180deg)';
+                left.style.animationName = 'show-left';
+                Draw.style.opacity = '100%';
+            }
+            else
+            {
+                Draw.style.right = '-40px';
+                Draw.style.transform = 'rotate(0deg)';
+                left.style.animationName = 'hide-left';
+                Draw.style.opacity = '50%';
+            }
+        }
+
+        function deleteAccount()
+        {
+            if(confirm("Are you sure? Do you really want to delete your account?"))
+            {
+                fetch('/delete_account',{
+                    method: 'POST'
+                })
+            }
+        }
+
+
+        function changePassword()
+        {
+            let Old = document.querySelector('#OldPassword').value;
+            let New = document.querySelector('#NewPassword').value;
+
+            fetch('/change_password', {
+                method: 'POST',
+                body: JSON.stringify({
+                    Old_pass: Old,
+                    New_pass: New
+                })
+            })
+            .then(response => response.json())
+            .then(result=>{
+                if(result.error)
+                {
+                    console.log(result)
+                    document.querySelector('#setting-message').innerHTML = result.error;
+                    document.querySelector('#setting-message').style.display = 'block';
+                }
+                else if(result.message)
+                {
+                    location.reload(true);
+                }
+            })
+        }
+
+
+        function toggleEditRoomList()
+        {
+            let element = document.getElementById('editRooms');
+
+            if(element.style.display == 'none')
+            {
+                document.querySelector('#editRoomList').innerHTML = "";
+                fetch('/load_rooms')
+                .then(response => response.json())
+                .then(rooms => {
+                    rooms.forEach(function(room){
+
+                        var roomUser = "";
+                    
+                        for (let i=0; i < room.users.length; i++) {
+                            if (room.users[i] != "{{ request.user.id }}")
+                            {
+                                if (AllContacts.length > 0)
+                                {
+                                for(let j=0; j<AllContacts.length; j++)
+                                {
+                                    if(AllContacts[j]["owner__id"] == room.users[i])
+                                    {
+                                        roomUser = AllContacts[j]["name"];
+                                        break;
+                                    }
+                                    else
+                                    {
+                                        roomUser = room.username[i];
+                                    }
+                                }
+                                }
+                                else
+                                {
+                                    roomUser = room.username[i];
+                                }
+                            }
+                        }
+
+                        document.querySelector('#editRoomList').innerHTML += `
+                                <div id="editRoom" data-modifier="${room.last_modifier}" data-id="${room.id}" data-name="${room.name}">
+                                    ${roomUser} <span class="bi bi-trash-fill" style="cursor: pointer;"  onclick="deleteThisRoom(${room.id})"></span>
+                                </div>
+                            `;
+                    })
+                })
+                element.style.display = 'block';
+            }
+            else
+            {
+                element.style.display = 'none';
+            }
+        }
+
+        function deleteThisRoom(room_id)
+        {
+            if(confirm("Do you realy want to delete this room?"))
+            {
+                fetch(`delete_room/${room_id}`)
+                .then(response => response.json())
+                .then(result => {
+                    if(result.error)
+                    {
+                        alert(result.error);
+                    }
+                    else if(result.message)
+                    {
+                        document.querySelectorAll('#editRoom').forEach(function(element){
+                            if(element.dataset.id == room_id)
+                            {
+                                element.remove();
+                                load_room_list();
+                                document.querySelector('#room-user').innerHTML = "";
+                                document.querySelector('#room-form').innerHTML = "";
+                                document.querySelector('#room').style.display = 'none';
+                            }
+                        })
+                    }
+                })
+            }
+        }
+    </script>
+{% endblock %}

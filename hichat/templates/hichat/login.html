@@ -1,0 +1,28 @@
+{% extends "hichat/layout.html" %}
+
+{% block body %}
+    <div class="login-page"> 
+        {% if messages %}
+            {% for message in messages %}
+                {% if message.tags == 'error' %}
+                    <div{% if message.tags %} class="alert alert-danger"{% endif %}>{{ message }}</div>
+                {% elif message.tags == 'success' %}
+                    <div{% if message.tags %} class="alert alert-success"{% endif %}>{{ message }}</div>
+                {% endif %}
+            {% endfor %}
+        {% endif %} 
+        <form class="login-form" action="{% url 'login' %}" method="post">
+            {% csrf_token %}
+            <h2>Login</h2>
+            <div class="form-group">
+                <input autofocus class="form-control" type="email" name="email" placeholder="Email" required>
+            </div>
+            <div class="form-group">
+                <input class="form-control" type="password" name="password" placeholder="Password" required>
+            </div>
+            <input class="btn btn-primary" type="submit" value="Login">
+
+            <p class="mt-5">Don't have an account? <a href="{% url 'register' %}">Click here.</a></p>
+        </form>
+    </div>
+{% endblock %}
